@@ -4,6 +4,7 @@ import autograd.scipy as sp
 import autograd.misc.optimizers
 import numpy
 import os
+import sys
 from tqdm import tqdm
 from matplotlib import pyplot as plt
 from autograd.misc.optimizers import adam
@@ -130,11 +131,11 @@ if __name__ == '__main__':
     D = q_0_mu.shape[0]
     num_samples = 1000
     
-    num_flows = 4
+    num_flows = 5
     lambda_flows = np.array([np.array([1., 0., 4., 5., 0.])]*num_flows)
     
-    m = 10000
-    step_size = .01
+    m = 30000
+    step_size = .05
     
     # Samples from initial distribution
     samples = np.random.multivariate_normal(q_0_mu, q_0_sigma*np.eye(D), num_samples)
@@ -145,7 +146,23 @@ if __name__ == '__main__':
     #gradient_descent(m, lambda_flows, grad_energy_bound, samples)
     #os.system("cd ./plots/ ; convert -delay 10 -loop 0 *.png learning_flows.gif")
     #os.system("cd ./plots/ ; ffmpeg -pattern_type glob -i \"*.png\" -c:v libx264 -pix_fmt yuv420p -movflags +faststart learning_flows.mp4")
+    def callback(x, i, g):
+        left = '['
+        right = ']'
+        eq = '=' * int(20*i/m)
+        blank = ' ' * int(20*(1 - i/m))
+        if(i%10 == 0):
+            sys.stdout.write("{0}{1}{2}{3}  {4:.3f}%\r".format(left, eq, blank, right, 100*i/m))
+            sys.stdout.flush()
+        if(i==(m-1)):
+            print("[{}]  100%".format(20*'='))
 
-    g_eb = lambda lambda_flows: grad_energy_bound(lambda_flows, samples, h)
-    output = adam(g_eb, lambda_flows)
+    g_eb = lambda lambda_flows, i: grad_energy_bound(lambda_flows, samples, h)
+    output = adam(g_eb, lambda_flows, num_iters=m, callback=callback)
     print(output)
+    samples_flowed = flow_samples(output, samples, h)
+    ax = setup_plot()
+    ax.scatter(samples_flowed[:,0], samples_flowed[:,1], alpha=0.5)
+    plt.savefig("./plots/adam_fit.png")
+    plt.show()
+
