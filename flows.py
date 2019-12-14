@@ -16,10 +16,16 @@ def u1(z, N=1):
     return N * np.exp(-exp_factor)
 
 
-def setup_plot():
+def u2(z, N=1):
+    exp_factor = 1/2*((z[:,:,1] - np.sin(2*np.pi*z[:,:,0]/0.4))/0.4)**2
+    return np.exp(-exp_factor)
+
+
+def setup_plot(u_func):
     X, Y = numpy.mgrid[-4:4:0.05, -4:4:0.05]
+    #X, Y = numpy.mgrid[-0.5:0.5:0.001, -0.5:0.5:0.001]
     dat = np.dstack((X, Y))
-    U_z1 = u1(dat)
+    U_z1 = u_func(dat)
     
     fig, ax = plt.subplots()
     ax.contourf(X, Y, U_z1, cmap='Reds', levels=15)
@@ -27,12 +33,12 @@ def setup_plot():
 
 
 def plot_shape():
-    ax = setup_plot()
+    ax = setup_plot(u_func)
     plt.show()
 
 
-def plot_shape_samples(samples):
-    ax = setup_plot()
+def plot_shape_samples(samples, u_func):
+    ax = setup_plot(u_func)
     ax.scatter(samples[:, 0], samples[:, 1], alpha=.5)
     plt.show()
 
@@ -59,10 +65,10 @@ def psi(lambda_flow, z, h):
 
 
 # Calculate energy bound
-def energy_bound(lambda_flows, z, h, beta=1.):
+def energy_bound(lambda_flows, z, h, u_func, beta=1.):
     D = (lambda_flows.shape[1]-1)//2
     initial_exp = np.mean(np.log(sp.stats.norm.pdf(z, loc=q_0_mu, scale=np.sqrt(q_0_sigma))))
-    joint_exp = beta*np.mean(np.log(u1(flow_samples(lambda_flows, z, h).reshape(1, -1, 2))))
+    joint_exp = beta*np.mean(np.log(u_func(flow_samples(lambda_flows, z, h).reshape(1, -1, 2))))
     flow_exp = 0
     for lambda_flow in lambda_flows:
         flow_exp += np.mean(np.log(np.abs(1 + np.dot(psi(lambda_flow, z, h), lambda_flow[:D]))))
@@ -70,8 +76,8 @@ def energy_bound(lambda_flows, z, h, beta=1.):
     return initial_exp - joint_exp - flow_exp
 
 
-def get_joint_exp(lambda_flows, z, h):
-    return np.mean(np.log(u1(flow_samples(lambda_flows, z, h).reshape(1, -1, 2))))
+def get_joint_exp(lambda_flows, z, h, u_func):
+    return np.mean(np.log(u_func(flow_samples(lambda_flows, z, h).reshape(1, -1, 2))))
 
 
 def get_flow_exp(lambda_flows, z, h):
@@ -80,7 +86,6 @@ def get_flow_exp(lambda_flows, z, h):
     for lambda_flow in lambda_flows:
         flow_exp += np.mean(np.log(np.abs(1 + np.dot(psi(lambda_flow, z, h), lambda_flow[:D]))))
         z = flow_once(lambda_flow, z, h)
-        
     return flow_exp
 
 
@@ -114,7 +119,7 @@ def gradient_descent(m, lambda_flows, grad_energy_bound, samples):
                 leading_zeros = int(np.log(m)/np.log(10)) - int(np.log(i)/np.log(10))
             zeros = '0'*leading_zeros
 
-            ax = setup_plot()
+            ax = setup_plot(u_func)
             ax.scatter(samples_flowed[:, 0], samples_flowed[:, 1], alpha=.5)
             plt.savefig("./plots/{}{}.png".format(zeros, i))
             plt.close()
@@ -125,6 +130,7 @@ if __name__ == '__main__':
 
     # Parameters
     h = np.tanh
+    u_func = u1
     
     q_0_mu = np.array([0,0])
     q_0_sigma = 1
@@ -134,14 +140,13 @@ if __name__ == '__main__':
     num_flows = 5
     lambda_flows = np.array([np.array([1., 0., 4., 5., 0.])]*num_flows)
     
-    m = 30000
+    m = 100
     step_size = .05
     
     # Samples from initial distribution
     samples = np.random.multivariate_normal(q_0_mu, q_0_sigma*np.eye(D), num_samples)
     #plot_shape_samples(samples)
     
-    grad_energy_bound = autograd.grad(energy_bound)
 
     #gradient_descent(m, lambda_flows, grad_energy_bound, samples)
     #os.system("cd ./plots/ ; convert -delay 10 -loop 0 *.png learning_flows.gif")
@@ -157,12 +162,16 @@ if __name__ == '__main__':
         if(i==(m-1)):
             print("[{}]  100%".format(20*'='))
 
-    g_eb = lambda lambda_flows, i: grad_energy_bound(lambda_flows, samples, h)
-    output = adam(g_eb, lambda_flows, num_iters=m, callback=callback)
-    print(output)
-    samples_flowed = flow_samples(output, samples, h)
-    ax = setup_plot()
-    ax.scatter(samples_flowed[:,0], samples_flowed[:,1], alpha=0.5)
-    plt.savefig("./plots/adam_fit.png")
-    plt.show()
+    output = np.copy(lambda_flows)
+    for i, beta in enumerate([1., 0.5, 0.1, 0.01]):#, 0.001]):
+        print("BETA: {}".format(beta))
+        grad_energy_bound = autograd.grad(energy_bound)
+        g_eb = lambda lambda_flows, i: grad_energy_bound(lambda_flows, samples, h, u_func, 
+                                                         beta=beta)
+        output = adam(g_eb, output, num_iters=m, callback=callback)
+        samples_flowed = flow_samples(output, samples, h)
+        ax = setup_plot(u_func)
+        ax.scatter(samples_flowed[:,0], samples_flowed[:,1], alpha=0.5)
+        plt.savefig("./plots/adam_fit_{}.png".format(i))
+        #plt.show()
 
