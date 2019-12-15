@@ -10,6 +10,12 @@ from matplotlib import pyplot as plt
 from autograd.misc.optimizers import adam
 
 
+def w1(z):
+    return np.sin(2*np.pi*z/4)
+
+def w2(z):
+    return 3*np.exp(-1/2*((z-1)/0.6)**2)
+
 def u1(z, N=1):
     exp_factor = 1/2*((np.linalg.norm(z, axis=2) - 2)/0.4)**2 - \
           np.log(np.exp(-1/2*((z[:,:,0] - 2)/0.6)**2) + np.exp(-1/2*((z[:,:,0] + 2)/0.6)**2))
@@ -17,13 +23,19 @@ def u1(z, N=1):
 
 
 def u2(z, N=1):
-    exp_factor = 1/2*((z[:,:,1] - np.sin(2*np.pi*z[:,:,0]/0.4))/0.4)**2
+    exp_factor = 1/2*((z[:,:,1] - np.sin(2*np.pi*z[:,:,0]/4))/0.4)**2
+    return np.exp(-exp_factor)
+
+
+def u3(z, N=1):
+    exp_factor = -np.log(np.exp(-1/2*((z[:,:,1] - w1(z[:,:,0]))/0.35)**2) + \
+                  np.exp(-1/2*((z[:,:,1] - w1(z[:,:,0]) + w2(z[:,:,0]))/0.35)**2))
     return np.exp(-exp_factor)
 
 
 def setup_plot(u_func):
     X, Y = numpy.mgrid[-4:4:0.05, -4:4:0.05]
-    #X, Y = numpy.mgrid[-0.5:0.5:0.001, -0.5:0.5:0.001]
+    #X, Y = numpy.mgrid[-10.:10.:0.1, -10.:10.:0.1]
     dat = np.dstack((X, Y))
     U_z1 = u_func(dat)
     
@@ -43,6 +55,14 @@ def plot_shape_samples(samples, u_func):
     plt.show()
 
 
+# Flow once
+def flow_once(lambda_flow, z, h):
+    D = (lambda_flow.shape[0]-1)//2
+    #z @ lambda_flow[D:2*D].reshape(-1, 1)
+    return z + h((z @ lambda_flow[D:2*D].reshape(-1, 1))+lambda_flow[-1]) @ \
+           lambda_flow[:D].reshape(1, -1)
+
+
 # lambda u, w, b
 # Flow multiple times
 def flow_samples(lambda_flows, z, h):
@@ -50,13 +70,6 @@ def flow_samples(lambda_flows, z, h):
     for lambda_flow in lambda_flows:
         z = flow_once(lambda_flow, z, h)
     return z
-
-# Flow once
-def flow_once(lambda_flow, z, h):
-    D = (lambda_flow.shape[0]-1)//2
-    z @ lambda_flow[D:2*D].reshape(-1, 1)
-    return z + h((z @ lambda_flow[D:2*D].reshape(-1, 1))+lambda_flow[-1]) @ \
-           lambda_flow[:D].reshape(1, -1)
 
 # Psi
 def psi(lambda_flow, z, h):
@@ -67,12 +80,21 @@ def psi(lambda_flow, z, h):
 # Calculate energy bound
 def energy_bound(lambda_flows, z, h, u_func, beta=1.):
     D = (lambda_flows.shape[1]-1)//2
-    initial_exp = np.mean(np.log(sp.stats.norm.pdf(z, loc=q_0_mu, scale=np.sqrt(q_0_sigma))))
+    #initial_exp = np.mean(np.log(sp.stats.norm.pdf(z, loc=q_0_mu, scale=np.sqrt(q_0_sigma))))
+    initial_exp = 0
     joint_exp = beta*np.mean(np.log(u_func(flow_samples(lambda_flows, z, h).reshape(1, -1, 2))))
+
     flow_exp = 0
-    for lambda_flow in lambda_flows:
+    for k, lambda_flow in enumerate(lambda_flows):
         flow_exp += np.mean(np.log(np.abs(1 + np.dot(psi(lambda_flow, z, h), lambda_flow[:D]))))
         z = flow_once(lambda_flow, z, h)
+
+
+    #for k in range(1, len(lambda_flows)):
+    #    flow_exp += np.mean(np.log(np.abs(1 + np.dot(psi(lambda_flows[k], z, h),
+    #                                                lambda_flows[k][:D]))))
+    #    z = flow_once(lambda_flows[k-1], z, h)
+
     return initial_exp - joint_exp - flow_exp
 
 
@@ -130,28 +152,35 @@ if __name__ == '__main__':
 
     # Parameters
     h = np.tanh
-    u_func = u1
+    u_func = u3
     
     q_0_mu = np.array([0,0])
-    q_0_sigma = 1
+    q_0_sigma = 10
     D = q_0_mu.shape[0]
-    num_samples = 1000
+    num_samples = 10000
     
-    num_flows = 5
-    lambda_flows = np.array([np.array([1., 0., 4., 5., 0.])]*num_flows)
+    num_flows = 32
+    #lambda_flows = np.array([np.array([1., 0., 4., 5., 0.])]*num_flows)
+    lambda_flows = np.array([np.array([1., 1., 0., 0., 0.,])]*num_flows)
     
-    m = 100
-    step_size = .05
+    m = 100000
+    step_size = .00005
     
     # Samples from initial distribution
     samples = np.random.multivariate_normal(q_0_mu, q_0_sigma*np.eye(D), num_samples)
+    #print(samples.shape)
+    #exit(1)
     #plot_shape_samples(samples)
     
 
     #gradient_descent(m, lambda_flows, grad_energy_bound, samples)
     #os.system("cd ./plots/ ; convert -delay 10 -loop 0 *.png learning_flows.gif")
     #os.system("cd ./plots/ ; ffmpeg -pattern_type glob -i \"*.png\" -c:v libx264 -pix_fmt yuv420p -movflags +faststart learning_flows.mp4")
+    e_bound = []
+    joint_exp_val = []
+    flow_exp_val = []
     def callback(x, i, g):
+        e_bound.append(energy_bound(g, samples, h, u_func))
         left = '['
         right = ']'
         eq = '=' * int(20*i/m)
@@ -160,18 +189,28 @@ if __name__ == '__main__':
             sys.stdout.write("{0}{1}{2}{3}  {4:.3f}%\r".format(left, eq, blank, right, 100*i/m))
             sys.stdout.flush()
         if(i==(m-1)):
+            sys.stdout.write("{}\r".format(' '*50))
+            sys.stdout.flush()
             print("[{}]  100%".format(20*'='))
 
     output = np.copy(lambda_flows)
-    for i, beta in enumerate([1., 0.5, 0.1, 0.01]):#, 0.001]):
-        print("BETA: {}".format(beta))
-        grad_energy_bound = autograd.grad(energy_bound)
-        g_eb = lambda lambda_flows, i: grad_energy_bound(lambda_flows, samples, h, u_func, 
-                                                         beta=beta)
-        output = adam(g_eb, output, num_iters=m, callback=callback)
-        samples_flowed = flow_samples(output, samples, h)
-        ax = setup_plot(u_func)
-        ax.scatter(samples_flowed[:,0], samples_flowed[:,1], alpha=0.5)
-        plt.savefig("./plots/adam_fit_{}.png".format(i))
-        #plt.show()
+    print("BEFORE LEARNING:\n{}".format(output))
+    grad_energy_bound = autograd.grad(energy_bound)
+    g_eb = lambda lambda_flows, i: grad_energy_bound(lambda_flows, samples, h, u_func, 
+                                                     beta=min(1, 0.01+i/10000))
+    output = adam(g_eb, output, num_iters=m, callback=callback, step_size=step_size)
+    print("AFTER LEARNING:\n{}".format(output))
+    samples_flowed = flow_samples(output, samples, h)
+
+    # Plot Transformed samples
+    ax = setup_plot(u_func)
+    print(samples_flowed.shape)
+    ax.scatter(samples_flowed[:,0], samples_flowed[:,1], alpha=0.5)
+    plt.savefig("./plots/adam_fit_long.png")
+
+    # Energy bound
+    fig, ax = plt.subplots()
+    ax.plot(e_bound, label="energy")
+    ax.legend(loc='best')
+    plt.savefig("./plots/energy_bound.png")
 
