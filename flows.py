@@ -317,9 +317,9 @@ def u_func(x, z):
 
 
 if __name__ == '__main__':
-    m = 20000
+    m = 2000
     #u_func = u1   # 2D Shape fit
-    u_func = lambda x: (sp.stats.norm.pdf((x-4)) + sp.stats.norm.pdf((x+4)))/2  # 1D Shape fit
+    #u_func = lambda x: (sp.stats.norm.pdf((x-4)) + sp.stats.norm.pdf((x+4)))/2  # 1D Shape fit
 
     target = lambda x: (sp.stats.norm.pdf((x-5)) + sp.stats.norm.pdf((x+5)))/2  # 1D Shape fit
     #u_func = lambda x, z: (sp.stats.norm.pdf(x-4-z) + sp.stats.norm.pdf(x-4-z))/2 * \
@@ -335,8 +335,8 @@ if __name__ == '__main__':
     num_flows = 5
     start = time.time()
     #shape_fit_2d(m, step_size, u_func, num_flows, num_samples)
-    shape_fit_1d(m, step_size, u_func, num_flows, num_samples)
-    #data_fit_1d(x_dat, m, step_size, u_func, num_flows, num_samples)
+    #shape_fit_1d(m, step_size, u_func, num_flows, num_samples)
+    data_fit_1d(x_dat, m, step_size, u_func, num_flows, num_samples)
     
     fig, ax = plt.subplots(nrows=4, figsize=(8,20))
     ax[0].plot(grad_norms, label="Norm of gradient")
