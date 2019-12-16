@@ -184,7 +184,7 @@ def adam_solve(lambda_flows, grad_energy_bound, samples, u_func, h, m=1000, step
     return samples_flowed
 
 
-def shape_fit_2d(m, step_size, u_func, num_flows=8):
+def shape_fit_2d(m, step_size, u_func, num_flows=8, num_samples=1000):
     # Parameters
     h = np.tanh
     
@@ -222,7 +222,7 @@ def shape_fit_2d(m, step_size, u_func, num_flows=8):
     #os.system(plot_str)
 
 
-def shape_fit_1d(m, step_size, u_func, num_flows=8):
+def shape_fit_1d(m, step_size, u_func, num_flows=8, num_samples=1000):
     # Parameters
     h = np.tanh
     #u_func = u1
@@ -231,7 +231,6 @@ def shape_fit_1d(m, step_size, u_func, num_flows=8):
     q_0_mu = np.array([0,0])
     q_0_sigma = 5
     D = q_0_mu.shape[0]
-    num_samples = 1000
 
     # 1D flows
     lambda_flows = np.array([np.array([1., 1., 0.])]*num_flows)
@@ -263,13 +262,33 @@ def shape_fit_1d(m, step_size, u_func, num_flows=8):
     #os.system(plot_str)
 
 
+def data_fit_1d(x_dat, m, step_size, u_func, num_flows=8, num_samples=1000):
+    pass
+
+
+def sample(u_func, shape, llim, ulim, num_samples=1000):
+    samples = []
+    while(len(samples) < num_samples):
+        trial_sample = np.random.uniform(llim, ulim, size=shape)
+        if(u_func(trial_sample) > np.random.random(shape)):
+            samples.append(trial_sample[0])
+    return samples
+
 
 if __name__ == '__main__':
     m = 4000
     #u_func = u1
-    u_func = lambda x: (sp.stats.norm.pdf((x-4)/4) + sp.stats.norm.pdf((x+4)))/2
+    u_func = lambda x: (sp.stats.norm.pdf((x-4)) + sp.stats.norm.pdf((x+4)))/2
+    x_dat = sample(u_func, 1, -8, 8, 10000)
+
+    fig, ax = plt.subplots()
+    ax.hist(x_dat, bins=100)
+    plt.show()
+    exit(1)
     step_size = .0005
     num_flows = 5
+    num_samples = 1000
     start = time.time()
-    #shape_fit_2d(m, step_size, u_func, num_flows)
-    shape_fit_1d(m, step_size, u_func, num_flows)
+    #shape_fit_2d(m, step_size, u_func, num_flows, num_samples)
+    shape_fit_1d(m, step_size, u_func, num_flows, num_samples)
+    data_fit_1d(x_dat, m, step_size, u_func, num_flows, num_samples)
