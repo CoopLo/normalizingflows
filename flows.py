@@ -10,11 +10,16 @@ from tqdm import tqdm
 from matplotlib import pyplot as plt
 from autograd.misc.optimizers import adam
 
+e_bound = []
+joint_probs = []
+flow_probs = []
+grad_norms = []
 def callback(x, i, g):
     left = '['
     right = ']'
     eq = '=' * int(20*i/m)
     blank = ' ' * int(20*(1 - i/m))
+    grad_norms.append(np.linalg.norm(g))
     if(i%10 == 0):
         sys.stdout.write("{0}{1}{2}{3}  {4:.3f}%  {5:.2f}s\r".format(
                          left, eq, blank, right, 100*i/m, time.time()-start))
@@ -23,6 +28,13 @@ def callback(x, i, g):
         sys.stdout.write("{}\r".format(' '*50))
         sys.stdout.flush()
         print("[{}]  100%  {}".format(20*'=', time.time() - start))
+    if(i%100 == 0):
+        new_samples = np.random.randn(num_samples)[:,np.newaxis]
+        flowed_samples = flow_samples(x, new_samples, np.tanh)
+        fig, ax = plt.subplots()
+        ax.hist(flowed_samples, bins=35, density=True)
+        plt.savefig("./data_fit_1d/{}.png".format(i))
+        plt.close()
 
 
 def w1(z):
@@ -56,7 +68,8 @@ def setup_plot(u_func):
         
         fig, ax = plt.subplots()
         ax.contourf(X, Y, U_z1, cmap='Reds', levels=15)
-    except TypeError:
+    except (TypeError, ValueError):
+        plt.close()
         x = np.linspace(-8, 8, 1000)
         fig, ax = plt.subplots()
         ax.plot(x, u_func(x))
@@ -77,7 +90,6 @@ def plot_shape_samples(samples, u_func):
 # Flow once
 def flow_once(lambda_flow, z, h):
     D = (lambda_flow.shape[0]-1)//2
-    #z @ lambda_flow[D:2*D].reshape(-1, 1)
     return z + h((z @ lambda_flow[D:2*D].reshape(-1, 1))+lambda_flow[-1]) @ \
            lambda_flow[:D].reshape(1, -1)
 
@@ -108,12 +120,10 @@ def energy_bound(lambda_flows, z, h, u_func, beta=1.):
         flow_exp += np.mean(np.log(np.abs(1 + np.dot(psi(lambda_flow, z, h), lambda_flow[:D]))))
         z = flow_once(lambda_flow, z, h)
 
-
-    #for k in range(1, len(lambda_flows)):
-    #    flow_exp += np.mean(np.log(np.abs(1 + np.dot(psi(lambda_flows[k], z, h),
-    #                                                lambda_flows[k][:D]))))
-    #    z = flow_once(lambda_flows[k-1], z, h)
-
+    e_bound.append((initial_exp - joint_exp - flow_exp)._value)
+    joint_probs.append(joint_exp._value)
+    #flow_probs.append(flow_exp._value)
+    flow_probs.append(0)
     return initial_exp - joint_exp - flow_exp
 
 
@@ -167,20 +177,16 @@ def gradient_descent(m, lambda_flows, grad_energy_bound, samples):
 
 
 def adam_solve(lambda_flows, grad_energy_bound, samples, u_func, h, m=1000, step_size=0.001):
-    #e_bound = []
-    joint_exp_val = []
-    flow_exp_val = []
-    start = time.time()
     output = np.copy(lambda_flows)
     print("BEFORE LEARNING:\n{}".format(output))
     grad_energy_bound = autograd.grad(energy_bound)
     g_eb = lambda lambda_flows, i: grad_energy_bound(lambda_flows, samples, h, u_func, 
-                                                     beta= (0.1 + i/1000))
-                                                     #beta=min(1, 0.01+i/10000))
+                                                     #beta= (0.1 + i/1000))
+                                                     beta=min(1, 0.01+i/10000))
     output = adam(g_eb, output, num_iters=m, callback=callback, step_size=step_size)
     print("AFTER LEARNING:\n{}".format(output))
     samples_flowed = flow_samples(output, samples, h)
-    np.savetxt("./plots/flow_params.txt", output)
+    np.savetxt("./data_fit_1d/flow_params.txt", output)
     return samples_flowed
 
 
@@ -225,8 +231,6 @@ def shape_fit_2d(m, step_size, u_func, num_flows=8, num_samples=1000):
 def shape_fit_1d(m, step_size, u_func, num_flows=8, num_samples=1000):
     # Parameters
     h = np.tanh
-    #u_func = u1
-    #TODO: Make joint the u_func
     
     q_0_mu = np.array([0,0])
     q_0_sigma = 5
@@ -263,32 +267,85 @@ def shape_fit_1d(m, step_size, u_func, num_flows=8, num_samples=1000):
 
 
 def data_fit_1d(x_dat, m, step_size, u_func, num_flows=8, num_samples=1000):
-    pass
+    # Set target data
+    ufunc = lambda z: u_func(x_dat, z)
+
+    # Parameters
+    h = np.tanh
+    
+    q_0_mu = np.array([0,0])
+    q_0_sigma = 5
+    D = q_0_mu.shape[0]
+
+    # 1D flows
+    lambda_flows = np.array([np.array([1., 1., 0.])]*num_flows)
+
+    # 1D samples
+    samples = np.random.randn(num_samples)[:,np.newaxis]
+    
+    # Gradient of energy bound
+    grad_energy_bound = autograd.grad(energy_bound)
+
+    # Minimize with adam, also time it
+    start = time.time()
+    flowed_samples = adam_solve(lambda_flows, grad_energy_bound, samples,
+                                ufunc, h, m, step_size)
+
+    # Plot Transformed samples
+    fig, ax = plt.subplots()
+    ax.hist(x_dat, bins=50, alpha=0.5, density=True, label="Target")
+    ax.hist(flowed_samples, bins=50, alpha=0.5, density=True, label="Flowed Samples")
+    ax.legend(loc='best')
+    plt.savefig("./plots/data_fit_1d.png")
+    #plt.show()
 
 
 def sample(u_func, shape, llim, ulim, num_samples=1000):
+    # Sample target distribution with rejection sampling
     samples = []
     while(len(samples) < num_samples):
         trial_sample = np.random.uniform(llim, ulim, size=shape)
         if(u_func(trial_sample) > np.random.random(shape)):
             samples.append(trial_sample[0])
-    return samples
+    return np.array(samples)[:,np.newaxis]
+
+
+def u_func(x, z):
+    z = z[0].reshape((-1, 1))
+    return (sp.stats.norm.pdf(x-5) + sp.stats.norm.pdf(x-5))/2 * \
+           (sp.stats.norm.pdf(x-z))
 
 
 if __name__ == '__main__':
-    m = 4000
-    #u_func = u1
-    u_func = lambda x: (sp.stats.norm.pdf((x-4)) + sp.stats.norm.pdf((x+4)))/2
-    x_dat = sample(u_func, 1, -8, 8, 10000)
+    m = 20000
+    #u_func = u1   # 2D Shape fit
+    u_func = lambda x: (sp.stats.norm.pdf((x-4)) + sp.stats.norm.pdf((x+4)))/2  # 1D Shape fit
 
-    fig, ax = plt.subplots()
-    ax.hist(x_dat, bins=100)
-    plt.show()
-    exit(1)
-    step_size = .0005
-    num_flows = 5
+    target = lambda x: (sp.stats.norm.pdf((x-5)) + sp.stats.norm.pdf((x+5)))/2  # 1D Shape fit
+    #u_func = lambda x, z: (sp.stats.norm.pdf(x-4-z) + sp.stats.norm.pdf(x-4-z))/2 * \
+    #                      (sp.stats.norm.pdf(x-4) + sp.stats.norm.pdf(x-4))/2
+    print("SAMPLING")
+
+    #TODO: Be able to use different number of target and initial samples
     num_samples = 1000
+    x_dat = sample(target, 1, -8, 8, num_samples)
+
+    #plt.show()
+    step_size = .001
+    num_flows = 5
     start = time.time()
     #shape_fit_2d(m, step_size, u_func, num_flows, num_samples)
     shape_fit_1d(m, step_size, u_func, num_flows, num_samples)
-    data_fit_1d(x_dat, m, step_size, u_func, num_flows, num_samples)
+    #data_fit_1d(x_dat, m, step_size, u_func, num_flows, num_samples)
+    
+    fig, ax = plt.subplots(nrows=4, figsize=(8,20))
+    ax[0].plot(grad_norms, label="Norm of gradient")
+    ax[0].legend(loc='best')
+    ax[1].plot(e_bound, label="Energy Bound")
+    ax[1].legend(loc='best')
+    ax[2].plot(joint_probs, label="Joint Probability")
+    ax[2].legend(loc='best')
+    ax[3].plot(flow_probs, label="Flow Probability")
+    ax[3].legend(loc='best')
+    plt.show()
+
