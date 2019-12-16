@@ -3,11 +3,27 @@ import autograd.numpy as np
 import autograd.scipy as sp
 import autograd.misc.optimizers
 import numpy
+import time
 import os
 import sys
 from tqdm import tqdm
 from matplotlib import pyplot as plt
 from autograd.misc.optimizers import adam
+
+def callback(x, i, g):
+    e_bound.append(energy_bound(g, samples, h, u_func))
+    left = '['
+    right = ']'
+    eq = '=' * int(20*i/m)
+    blank = ' ' * int(20*(1 - i/m))
+    if(i%10 == 0):
+        sys.stdout.write("{0}{1}{2}{3}  {4:.3f}%  {5:.2f}s\r".format(
+                         left, eq, blank, right, 100*i/m, time.time()-start))
+        sys.stdout.flush()
+    if(i==(m-1)):
+        sys.stdout.write("{}\r".format(' '*50))
+        sys.stdout.flush()
+        print("[{}]  100%  {}".format(20*'=', time.time() - start))
 
 
 def w1(z):
@@ -20,6 +36,11 @@ def u1(z, N=1):
     exp_factor = 1/2*((np.linalg.norm(z, axis=2) - 2)/0.4)**2 - \
           np.log(np.exp(-1/2*((z[:,:,0] - 2)/0.6)**2) + np.exp(-1/2*((z[:,:,0] + 2)/0.6)**2))
     return N * np.exp(-exp_factor)
+
+
+def target_prob(x, z, mu=[1.], sigma=[1.]):
+    #for i in range(len(mu)):
+    pass
 
 
 def u2(z, N=1):
@@ -147,57 +168,17 @@ def gradient_descent(m, lambda_flows, grad_energy_bound, samples):
             plt.close()
 
 
-if __name__ == '__main__':
-    #plot_shape()
-
-    # Parameters
-    h = np.tanh
-    u_func = u3
-    
-    q_0_mu = np.array([0,0])
-    q_0_sigma = 10
-    D = q_0_mu.shape[0]
-    num_samples = 10000
-    
-    num_flows = 32
-    #lambda_flows = np.array([np.array([1., 0., 4., 5., 0.])]*num_flows)
-    lambda_flows = np.array([np.array([1., 1., 0., 0., 0.,])]*num_flows)
-    
-    m = 100000
-    step_size = .00005
-    
-    # Samples from initial distribution
-    samples = np.random.multivariate_normal(q_0_mu, q_0_sigma*np.eye(D), num_samples)
-    #print(samples.shape)
-    #exit(1)
-    #plot_shape_samples(samples)
-    
-
-    #gradient_descent(m, lambda_flows, grad_energy_bound, samples)
-    #os.system("cd ./plots/ ; convert -delay 10 -loop 0 *.png learning_flows.gif")
-    #os.system("cd ./plots/ ; ffmpeg -pattern_type glob -i \"*.png\" -c:v libx264 -pix_fmt yuv420p -movflags +faststart learning_flows.mp4")
+def adam_solve(lambda_flows, grad_energy_bound, samples, u_func, m=1000, step_size=0.001):
     e_bound = []
     joint_exp_val = []
     flow_exp_val = []
-    def callback(x, i, g):
-        e_bound.append(energy_bound(g, samples, h, u_func))
-        left = '['
-        right = ']'
-        eq = '=' * int(20*i/m)
-        blank = ' ' * int(20*(1 - i/m))
-        if(i%10 == 0):
-            sys.stdout.write("{0}{1}{2}{3}  {4:.3f}%\r".format(left, eq, blank, right, 100*i/m))
-            sys.stdout.flush()
-        if(i==(m-1)):
-            sys.stdout.write("{}\r".format(' '*50))
-            sys.stdout.flush()
-            print("[{}]  100%".format(20*'='))
-
+    start = time.time()
     output = np.copy(lambda_flows)
     print("BEFORE LEARNING:\n{}".format(output))
     grad_energy_bound = autograd.grad(energy_bound)
     g_eb = lambda lambda_flows, i: grad_energy_bound(lambda_flows, samples, h, u_func, 
-                                                     beta=min(1, 0.01+i/10000))
+                                                     beta= (0.1 + i/1000))
+                                                     #beta=min(1, 0.01+i/10000))
     output = adam(g_eb, output, num_iters=m, callback=callback, step_size=step_size)
     print("AFTER LEARNING:\n{}".format(output))
     samples_flowed = flow_samples(output, samples, h)
@@ -206,11 +187,54 @@ if __name__ == '__main__':
     ax = setup_plot(u_func)
     print(samples_flowed.shape)
     ax.scatter(samples_flowed[:,0], samples_flowed[:,1], alpha=0.5)
-    plt.savefig("./plots/adam_fit_long.png")
+    plt.savefig("./plots/adam_fit_test.png")
 
     # Energy bound
     fig, ax = plt.subplots()
     ax.plot(e_bound, label="energy")
     ax.legend(loc='best')
-    plt.savefig("./plots/energy_bound.png")
+    plt.savefig("./plots/energy_bound_test.png")
+
+
+if __name__ == '__main__':
+    # Parameters
+    h = np.tanh
+    u_func = u3
+    
+    q_0_mu = np.array([0,0])
+    q_0_sigma = 10
+    D = q_0_mu.shape[0]
+    num_samples = 1000
+    
+    num_flows = 5
+    #lambda_flows = np.array([np.array([1., 0., 4., 5., 0.])]*num_flows)
+    lambda_flows = np.array([np.array([1., 1., 0., 0., 0.,])]*num_flows)
+    
+    m = 10000
+    step_size = .0001
+    
+    # Samples from initial distribution
+    samples = np.random.multivariate_normal(q_0_mu, q_0_sigma*np.eye(D), num_samples)
+    #print(samples.shape)
+    #exit(1)
+    #plot_shape_samples(samples)
+    
+    e_bound = []
+    start = time.time()
+    grad_energy_bound = autograd.grad(energy_bound)
+
+    #xs = np.linspace(-8, 8, 1000)
+    #target = lambda x: sp.stats.norm.pdf((x-2)/1) + sp.stats.norm.pdf((x+2)/1)
+    #fig, ax = plt.subplots()
+    #ax.plot(xs, target(xs))
+    #plt.show()
+
+    #gradient_descent(m, lambda_flows, grad_energy_bound, samples)
+    adam_solve(lambda_flows, grad_energy_bound, samples, u_func, m, step_size)
+
+    # Convert plots to gif or mp4
+    #os.system("cd ./plots/ ; convert -delay 10 -loop 0 *.png learning_flows.gif")
+    #plot_str = "cd ./plots/ ; ffmpeg -pattern_type glob -i \"*.png\" -c:v "
+    #plot_str += "libx264 -pix_fmt yuv420p -movflags +faststart learning_flows.mp4"
+    #os.system(plot_str)
 
