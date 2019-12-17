@@ -16,6 +16,10 @@ joint_probs = []
 flow_probs = []
 grad_norms = []
 def callback(x, i, g):
+    '''
+        Callback function used in Adam solver. Has functionality to plot intermediate steps
+        and do progress bar
+    '''
     grad_norms.append(np.linalg.norm(g))
     if(i%10 == 0):
         left = '['
@@ -39,6 +43,9 @@ def callback(x, i, g):
         plt.close()
 
 
+###
+#   Toy density functions
+###
 def w1(z):
     return np.sin(2*np.pi*z/4)
 
@@ -63,6 +70,10 @@ def u3(z, N=1):
 
 
 def setup_plot(u_func):
+    '''
+        Function used to set up plot of target density, returns axis object for additional
+        plotting
+    '''
     try:
         X, Y = numpy.mgrid[-4:4:0.05, -4:4:0.05]
         dat = np.dstack((X, Y))
@@ -79,26 +90,36 @@ def setup_plot(u_func):
 
 
 def plot_shape():
+    '''
+        Simply plots target density
+    '''
     ax = setup_plot(u_func)
     plt.show()
 
 
 def plot_shape_samples(samples, u_func):
+    '''
+        plots target density and samples
+    '''
     ax = setup_plot(u_func)
     ax.scatter(samples[:, 0], samples[:, 1], alpha=.5)
     plt.show()
 
 
-# Flow once
 def flow_once(lambda_flow, z, h):
+    '''
+        Flow one planar tranfsormation flow
+    '''
     D = (lambda_flow.shape[0]-1)//2
     return z + h((z @ lambda_flow[D:2*D].reshape(-1, 1))+lambda_flow[-1]) @ \
            lambda_flow[:D].reshape(1, -1)
 
 
 # lambda u, w, b
-# Flow multiple times
 def flow_samples(lambda_flows, z, h):
+    '''
+        Transform sample through multiple flows
+    '''
     D = (lambda_flows.shape[1]-1)//2
     for lambda_flow in lambda_flows:
         z = flow_once(lambda_flow, z, h)
@@ -107,22 +128,32 @@ def flow_samples(lambda_flows, z, h):
 
 # Psi
 def psi(lambda_flow, z, h):
+    '''
+        Computes log-det-jacobian according to formula from the paper
+    '''
     D = (lambda_flow.shape[0]-1)//2
     return (1-h((z @ lambda_flow[D:2*D].reshape(-1, 1))+lambda_flow[-1])**2) * lambda_flow[D:2*D]
 
 
 # Calculate energy bound
 def energy_bound(lambda_flows, z, h, u_func, beta=1.):
+    '''
+        Energy bound formula from the paper. We exclude the initial sampling contribution
+        because it is independent of flow parameters.
+    '''
     D = (lambda_flows.shape[1]-1)//2
     #initial_exp = np.mean(np.log(sp.stats.norm.pdf(z, loc=q_0_mu, scale=np.sqrt(q_0_sigma))))
     initial_exp = 0
     joint_exp = beta*np.mean(np.log(u_func(flow_samples(lambda_flows, z, h).reshape(1, -1, 2))))
 
+    # log-det-jacobian contribution from the paper
     flow_exp = 0
     for k, lambda_flow in enumerate(lambda_flows):
-        flow_exp = flow_exp + np.mean(np.log(np.abs(1 + np.dot(psi(lambda_flow, z, h), lambda_flow[:D]))))
+        flow_exp = flow_exp + \
+                   np.mean(np.log(np.abs(1 + np.dot(psi(lambda_flow, z, h), lambda_flow[:D]))))
         z = flow_once(lambda_flow, z, h)
 
+    # Store probabilities for plotting and analysis
     e_bound.append((initial_exp - joint_exp - flow_exp)._value)
     joint_probs.append(joint_exp._value)
     flow_probs.append(flow_exp._value)
@@ -130,19 +161,31 @@ def energy_bound(lambda_flows, z, h, u_func, beta=1.):
 
 
 def get_joint_exp(lambda_flows, z, h, u_func):
+    '''
+        Get joint contribution to energy for gradient descent according to formula
+        from the paper
+    '''
     return np.mean(np.log(u_func(flow_samples(lambda_flows, z, h).reshape(1, -1, 2))))
 
 
 def get_flow_exp(lambda_flows, z, h):
+    '''
+        Get flow contribution to energy function for gradient descent
+    '''
     D = (lambda_flows.shape[1]-1)//2
     flow_exp = 0
     for lambda_flow in lambda_flows:
-        flow_exp = flow_exp + np.mean(np.log(np.abs(1 + np.dot(psi(lambda_flow, z, h), lambda_flow[:D]))))
+        flow_exp = flow_exp + \
+                   np.mean(np.log(np.abs(1 + np.dot(psi(lambda_flow, z, h), lambda_flow[:D]))))
         z = flow_once(lambda_flow, z, h)
     return flow_exp
 
 
 def gradient_descent(m, lambda_flows, grad_energy_bound, samples):
+    '''
+        Gradient descent for finding parameters. This may not work anymore since switching over
+        to the Adam optimizer.
+    '''
     energy_hist = np.empty(m)
     joint_hist = np.empty(m)
     flow_hist = np.empty(m)
@@ -179,16 +222,19 @@ def gradient_descent(m, lambda_flows, grad_energy_bound, samples):
 
 
 def adam_solve(lambda_flows, grad_energy_bound, samples, u_func, h, m=1000, step_size=0.001):
-    output = np.copy(lambda_flows)
+    '''
+        Uses adam solver to optimize the energy bound
+    '''
+    output = np.copy(lambda_flows) # Copies to avoid changing initial conditions
     print("BEFORE LEARNING:\n{}".format(output))
-    grad_energy_bound = autograd.grad(energy_bound)
+    grad_energy_bound = autograd.grad(energy_bound)  # Autograd gradient of energy
     g_eb = lambda lambda_flows, i: grad_energy_bound(lambda_flows, samples, h, u_func, 
                                                      #beta= (0.1 + i/1000))
-                                                     beta=min(1, 0.01+i/10000))
+                                                     beta=min(1, 0.01+i/10000)) # Annealing
     output = adam(g_eb, output, num_iters=m, callback=callback, step_size=step_size)
     print("AFTER LEARNING:\n{}".format(output))
-    #samples_flowed = flow_samples(output, samples, h)
-    samples = np.random.randn(10000)[:,np.newaxis]
+
+    samples = np.random.randn(30000)[:,np.newaxis] # Plot with more samples for better clarity
     samples_flowed = flow_samples(output, samples, h)
     np.savetxt("./data_fit_1d/flow_params.txt", output)
     return samples_flowed
@@ -240,8 +286,10 @@ def shape_fit_1d(m, step_size, u_func, num_flows=8, num_samples=1000):
     q_0_sigma = 10
     D = q_0_mu.shape[0]
 
-    # 1D flows
-    lambda_flows = np.array([np.array([1., 1., 0.])]*num_flows)
+    # flows
+    #lambda_flows = np.array([np.array([1., 1., 1., 1., 0.])])
+    #lambda_flows = np.array([np.array([1., 1., 0.])]*num_flows)
+    lambda_flows = np.loadtxt("./data_fit_1d/flow_params.txt")
 
     # 1D samples
     samples = np.random.randn(num_samples)[:,np.newaxis]
@@ -261,7 +309,7 @@ def shape_fit_1d(m, step_size, u_func, num_flows=8, num_samples=1000):
 
     # Plot Transformed samples
     ax = setup_plot(u_func)
-    ax.hist(flowed_samples, bins=100, alpha=0.5, density=True)
+    ax.hist(flowed_samples, bins=175, alpha=0.5, density=True)
     #plt.savefig("./plots/adam_fit_test.png")
     plt.savefig("./data_fit_1d/adam_fit.png")
 
@@ -272,24 +320,8 @@ def shape_fit_1d(m, step_size, u_func, num_flows=8, num_samples=1000):
     #os.system(plot_str)
 
 
-def sample(u_func, shape, llim, ulim, num_samples=1000):
-    # Sample target distribution with rejection sampling
-    samples = []
-    while(len(samples) < num_samples):
-        trial_sample = np.random.uniform(llim, ulim, size=shape)
-        if(u_func(trial_sample) > np.random.random(shape)):
-            samples.append(trial_sample[0])
-    return np.array(samples)[:,np.newaxis]
-
-
-def u_func(x, z):
-    z = z[0].reshape((-1, 1))
-    return (sp.stats.norm.pdf(x-5) + sp.stats.norm.pdf(x-5))/2 * \
-           (sp.stats.norm.pdf(x-z))
-
-
 if __name__ == '__main__':
-    m = 120
+    m = 5000
     #u_func = u1   # 2D Shape fit
     #u_func = lambda x: (sp.stats.norm.pdf((x-4)) + sp.stats.norm.pdf((x+4)))/2 # 1D Shape fit
     #u_func = lambda x: sp.stats.gamma.pdf(x, 1)
@@ -302,17 +334,14 @@ if __name__ == '__main__':
     #                      (sp.stats.norm.pdf(x-4) + sp.stats.norm.pdf(x-4))/2
     print("SAMPLING")
 
-    #TODO: Be able to use different number of target and initial samples
-    num_samples = 3000
+    num_samples = 20000
     #x_dat = sample(target, 1, -8, 8, num_samples)
 
-    #plt.show()
-    step_size = .0005
-    num_flows = 32
+    step_size = .0001
+    num_flows = 70
     start = time.time()
     #shape_fit_2d(m, step_size, u_func, num_flows, num_samples)
     shape_fit_1d(m, step_size, u_func, num_flows, num_samples)
-    #data_fit_1d(x_dat, m, step_size, u_func, num_flows, num_samples)
     
     fig, ax = plt.subplots(nrows=4, figsize=(8,20))
     ax[0].plot(grad_norms, label="Norm of gradient")
