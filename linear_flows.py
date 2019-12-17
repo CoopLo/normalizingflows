@@ -129,6 +129,18 @@ def get_joint_exp(lambda_flows, z, h, u_func):
     return np.mean(np.log(u_func(flow_samples(lambda_flows, z, h).reshape(1, -1, 2))))
 
 
+def get_flow_exp(lambda_flows, z, h):
+    '''
+        Calculates flow portion of energy function for gradient descent
+    '''
+    D = (lambda_flows.shape[1]-1)//2
+    flow_exp = 0
+    for lambda_flow in lambda_flows:
+        flow_exp = flow_exp + np.mean(np.log(np.abs(1 + np.dot(psi(lambda_flow, z, h), lambda_flow[:D]))))
+        z = flow_once(lambda_flow, z, h)
+    return flow_exp
+
+
 def gradient_descent(m, lambda_flows, grad_energy_bound, samples):
     '''
         Gradient descent for finding parameters. This may not work anymore since switching over
