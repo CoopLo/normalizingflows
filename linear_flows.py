@@ -39,7 +39,7 @@ def callback(x, i, g):
         flowed_samples = flow_samples(x, new_samples, np.tanh)
         fig, ax = plt.subplots()
         ax.hist(flowed_samples, bins=35, density=True)
-        plt.savefig("./data_fit_1d/{}.png".format(i))
+        plt.savefig("./linear_plots/{}.png".format(i))
         plt.close()
 
 
@@ -59,7 +59,7 @@ def setup_plot(u_func):
         plt.close()
         x = np.linspace(-8, 8, 1000)
         fig, ax = plt.subplots()
-        ax.plot(x, u_func(x))
+        ax.plot(x, u_func(x), label="Target Distribution")
     return ax
 
 
@@ -197,7 +197,7 @@ def adam_solve(lambda_flows, grad_energy_bound, samples, u_func, h, m=1000, step
     # Resample and flow a larger number of samples to better show fit
     samples = np.random.randn(20000)[:,np.newaxis]
     samples_flowed = flow_samples(output, samples, h)
-    np.savetxt("./data_fit_1d/flow_params.txt", output)
+    np.savetxt("./linear_plots/flow_params.txt", output)
     return samples_flowed
 
 
@@ -207,7 +207,7 @@ def shape_fit_1d(m, step_size, u_func, num_flows=8, num_samples=1000):
     
     # Initial distribution parameters
     q_0_mu = np.array([0,0])
-    q_0_sigma = 10
+    q_0_sigma = 1
     D = q_0_mu.shape[0]
 
     # 1D flows
@@ -226,9 +226,11 @@ def shape_fit_1d(m, step_size, u_func, num_flows=8, num_samples=1000):
 
     # Plot Transformed samples
     ax = setup_plot(u_func)
-    ax.hist(flowed_samples, bins=140, alpha=0.5, density=True)
+    ax.hist(flowed_samples, bins=140, alpha=0.5, density=True, label="Flowed Samples")
+    ax.legend(loc='best')
+    ax.set(title="Comparison of Target Density and Flowed Samples")
     #plt.savefig("./plots/adam_fit_test.png")
-    plt.savefig("./data_fit_1d/adam_fit.png")
+    plt.savefig("./linear_plots/adam_fit.png")
 
     # Convert plots to gif or mp4
     #os.system("cd ./plots/ ; convert -delay 10 -loop 0 *.png learning_flows.gif")
@@ -245,15 +247,15 @@ def u_func(x, z):
 
 if __name__ == '__main__':
     # Different target functions to choose from
-    #u_func = lambda x: (sp.stats.norm.pdf((x-4)) + sp.stats.norm.pdf((x+4)))/2 # 1D Shape fit
-    u_func = lambda x: (1/2*np.exp(-np.abs(x-2)) + 1/2*np.exp(-np.abs(x)) + \
-                        1/2*np.exp(-np.abs(x+2)))/3
+    u_func = lambda x: (sp.stats.norm.pdf((x-5)) + sp.stats.norm.pdf((x+3)))/2 # 1D Shape fit
+    #u_func = lambda x: (1/2*np.exp(-np.abs(x-2)) + 1/2*np.exp(-np.abs(x)) + \
+    #                    1/2*np.exp(-np.abs(x+2)))/3
 
     # Hyperparameters
-    num_samples = 3000
-    m = 2000
-    step_size = .0005
-    num_flows = 5
+    num_samples = 2000
+    m = 3000
+    step_size = .002
+    num_flows = 10
 
     # Fit flows
     start = time.time()
@@ -269,6 +271,6 @@ if __name__ == '__main__':
     ax[2].legend(loc='best')
     ax[3].plot(flow_probs, label="Flow Probability")
     ax[3].legend(loc='best')
-    plt.savefig("./data_fit_1d/probabilities.png")
+    plt.savefig("./linear_plots/probabilities.png")
     plt.show()
 

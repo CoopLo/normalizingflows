@@ -25,7 +25,7 @@ def callback(x, i, g):
         left = '['
         right = ']'
         eq = '=' * int(20*i/m)
-        blank = ' ' * int(20*(1 - i/m))
+        blank = ' ' * int(np.ceil(20*(1 - i/m)))
         sys.stdout.write("{0}{1}{2}{3}  {4:.3f}%  {5:.2f}s\r".format(
                          left, eq, blank, right, 100*i/m, time.time()-start))
         sys.stdout.flush()
@@ -33,14 +33,14 @@ def callback(x, i, g):
         sys.stdout.write("{}\r".format(' '*50))
         sys.stdout.flush()
         print("[{}]  100%  {}".format(20*'=', time.time() - start))
-    if(i%100 == 0):
-        new_samples = np.random.randn(num_samples)[:,np.newaxis]
+    #if(i%100 == 0):
+    #    new_samples = np.random.randn(num_samples)[:,np.newaxis]
         #new_samples = np.random.uniform(-1, 1, num_samples)[:,np.newaxis]
-        flowed_samples = flow_samples(x, new_samples, np.tanh)
-        fig, ax = plt.subplots()
-        ax.hist(flowed_samples, bins=35, density=True)
-        plt.savefig("./data_fit_1d/{}.png".format(i))
-        plt.close()
+        #flowed_samples = flow_samples(x, new_samples, np.tanh)
+        #fig, ax = plt.subplots()
+        #ax.hist(flowed_samples, bins=140, density=True)
+        #plt.savefig("./data_fit_1d/{}.png".format(i))
+        #plt.close()
 
 
 ###
@@ -85,7 +85,8 @@ def setup_plot(u_func):
         plt.close()
         x = np.linspace(-8, 8, 1000)
         fig, ax = plt.subplots()
-        ax.plot(x, u_func(x))
+        ax.plot(x, u_func(x), label="Target Distribution")
+        ax.set(title="Comparison of Target Density and Flowed Samples")
     return ax
 
 
@@ -111,8 +112,8 @@ def flow_once(lambda_flow, z, h):
         Flow one planar tranfsormation flow
     '''
     D = (lambda_flow.shape[0]-1)//2
-    return z + h((z @ lambda_flow[D:2*D].reshape(-1, 1))+lambda_flow[-1]) @ \
-           lambda_flow[:D].reshape(1, -1)
+    return z + np.dot(h(np.dot(z, lambda_flow[D:2*D].reshape(-1, 1))+lambda_flow[-1]), \
+           lambda_flow[:D].reshape(1, -1))
 
 
 # lambda u, w, b
@@ -132,7 +133,8 @@ def psi(lambda_flow, z, h):
         Computes log-det-jacobian according to formula from the paper
     '''
     D = (lambda_flow.shape[0]-1)//2
-    return (1-h((z @ lambda_flow[D:2*D].reshape(-1, 1))+lambda_flow[-1])**2) * lambda_flow[D:2*D]
+    return (1-h(np.dot(z, lambda_flow[D:2*D].reshape(-1, 1))+lambda_flow[-1])**2) * \
+            lambda_flow[D:2*D]
 
 
 # Calculate energy bound
@@ -234,9 +236,15 @@ def adam_solve(lambda_flows, grad_energy_bound, samples, u_func, h, m=1000, step
     output = adam(g_eb, output, num_iters=m, callback=callback, step_size=step_size)
     print("AFTER LEARNING:\n{}".format(output))
 
-    samples = np.random.randn(30000)[:,np.newaxis] # Plot with more samples for better clarity
+    #samples = np.random.randn(30000)[:,np.newaxis] # Plot with more samples for better clarity
+    q_0_mu = np.array([0,0])
+    q_0_sigma = 1
+    D = q_0_mu.shape[0]
+    samples = np.random.multivariate_normal(q_0_mu, q_0_sigma*np.eye(D), num_samples)
+
     samples_flowed = flow_samples(output, samples, h)
-    np.savetxt("./data_fit_1d/flow_params.txt", output)
+    #np.savetxt("./data_fit_1d/flow_params.txt", output)
+    np.savetxt("./2d_plots/flow_params.txt", output)
     return samples_flowed
 
 
@@ -245,11 +253,8 @@ def shape_fit_2d(m, step_size, u_func, num_flows=8, num_samples=1000):
     h = np.tanh
     
     q_0_mu = np.array([0,0])
-    q_0_sigma = 5
+    q_0_sigma = 1
     D = q_0_mu.shape[0]
-    num_samples = 2000
-    
-    num_flows = 15
 
     # 2D flows
     #lambda_flows = np.array([np.array([1., 0., 4., 5., 0.])]*num_flows)
@@ -267,9 +272,9 @@ def shape_fit_2d(m, step_size, u_func, num_flows=8, num_samples=1000):
 
     # Plot Transformed samples
     ax = setup_plot(u_func)
-    print(samples_flowed.shape)
-    ax.scatter(samples_flowed[:,0], samples_flowed[:,1], alpha=0.2)
-    plt.savefig("./plots/adam_fit_test.png")
+    #print(samples_flowed.shape)
+    ax.scatter(flowed_samples[:,0], flowed_samples[:,1], alpha=0.2)
+    plt.savefig("./2d_plots/adam_fit_test.png")
 
     # Convert plots to gif or mp4
     #os.system("cd ./plots/ ; convert -delay 10 -loop 0 *.png learning_flows.gif")
@@ -309,8 +314,9 @@ def shape_fit_1d(m, step_size, u_func, num_flows=8, num_samples=1000):
 
     # Plot Transformed samples
     ax = setup_plot(u_func)
-    ax.hist(flowed_samples, bins=175, alpha=0.5, density=True)
+    ax.hist(flowed_samples, bins=175, alpha=0.5, density=True, label="Transformed Samples")
     #plt.savefig("./plots/adam_fit_test.png")
+    ax.legend(loc='best')
     plt.savefig("./data_fit_1d/adam_fit.png")
 
     # Convert plots to gif or mp4
@@ -321,13 +327,14 @@ def shape_fit_1d(m, step_size, u_func, num_flows=8, num_samples=1000):
 
 
 if __name__ == '__main__':
+    m = 14000
     m = 5000
-    #u_func = u1   # 2D Shape fit
+    u_func = u2   # 2D Shape fit
     #u_func = lambda x: (sp.stats.norm.pdf((x-4)) + sp.stats.norm.pdf((x+4)))/2 # 1D Shape fit
     #u_func = lambda x: sp.stats.gamma.pdf(x, 1)
     #u_func = lambda x: sp.stats.laplace.pdf(x, 4)
-    u_func = lambda x: (1/2*np.exp(-np.abs(x-2)) + 1/2*np.exp(-np.abs(x)) + \
-                        1/2*np.exp(-np.abs(x+2)))/3
+    #u_func = lambda x: (1/2*np.exp(-np.abs(x-2)) + 1/2*np.exp(-np.abs(x)) + \
+    #                    1/2*np.exp(-np.abs(x+2)))/3
 
     target = lambda x: (sp.stats.norm.pdf((x-4)) + sp.stats.norm.pdf((x+4)))/2  # 1D Shape fit
     #u_func = lambda x, z: (sp.stats.norm.pdf(x-4-z) + sp.stats.norm.pdf(x-4-z))/2 * \
@@ -335,13 +342,14 @@ if __name__ == '__main__':
     print("SAMPLING")
 
     num_samples = 20000
+    num_samples = 1000
     #x_dat = sample(target, 1, -8, 8, num_samples)
 
     step_size = .0001
-    num_flows = 70
+    num_flows = 10
     start = time.time()
-    #shape_fit_2d(m, step_size, u_func, num_flows, num_samples)
-    shape_fit_1d(m, step_size, u_func, num_flows, num_samples)
+    shape_fit_2d(m, step_size, u_func, num_flows, num_samples)
+    #shape_fit_1d(m, step_size, u_func, num_flows, num_samples)
     
     fig, ax = plt.subplots(nrows=4, figsize=(8,20))
     ax[0].plot(grad_norms, label="Norm of gradient")
@@ -352,6 +360,7 @@ if __name__ == '__main__':
     ax[2].legend(loc='best')
     ax[3].plot(flow_probs, label="Flow Probability")
     ax[3].legend(loc='best')
-    plt.savefig("./data_fit_1d/probabilities.png")
+    #plt.savefig("./data_fit_1d/probabilities.png")
+    plt.savefig("./2d_plots/probabilities.png")
     plt.show()
 
