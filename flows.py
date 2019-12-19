@@ -15,6 +15,8 @@ e_bound = []
 joint_probs = []
 flow_probs = []
 grad_norms = []
+m = 1000
+start = time.time()
 def callback(x, i, g):
     '''
         Callback function used in Adam solver. Has functionality to plot intermediate steps
@@ -146,7 +148,11 @@ def energy_bound(lambda_flows, z, h, u_func, beta=1.):
     D = (lambda_flows.shape[1]-1)//2
     #initial_exp = np.mean(np.log(sp.stats.norm.pdf(z, loc=q_0_mu, scale=np.sqrt(q_0_sigma))))
     initial_exp = 0
-    joint_exp = beta*np.mean(np.log(u_func(flow_samples(lambda_flows, z, h).reshape(1, -1, 2))))
+    #joint_exp = beta*np.mean(np.log(u_func(flow_samples(lambda_flows, z, h).reshape(1, -1, 2))))
+    #print(flow_samples(lambda_flows, z, h))
+    #print(u_func(flow_samples(lambda_flows, z, h)))
+    joint_exp = beta*np.mean(np.log(u_func(flow_samples(lambda_flows, z, h))))
+    #print("JOINT EXP: {}".format(joint_exp))
 
     # log-det-jacobian contribution from the paper
     flow_exp = 0
@@ -240,11 +246,11 @@ def adam_solve(lambda_flows, grad_energy_bound, samples, u_func, h, m=1000, step
     q_0_mu = np.array([0,0])
     q_0_sigma = 1
     D = q_0_mu.shape[0]
-    samples = np.random.multivariate_normal(q_0_mu, q_0_sigma*np.eye(D), num_samples)
+    #samples = np.random.multivariate_normal(q_0_mu, q_0_sigma*np.eye(D), 20000)
 
     samples_flowed = flow_samples(output, samples, h)
     #np.savetxt("./data_fit_1d/flow_params.txt", output)
-    np.savetxt("./2d_plots/flow_params.txt", output)
+    np.savetxt("./nn_fit/flow_params.txt", output)
     return samples_flowed
 
 
@@ -345,7 +351,7 @@ if __name__ == '__main__':
     num_samples = 1000
     #x_dat = sample(target, 1, -8, 8, num_samples)
 
-    step_size = .0001
+    step_size = .001
     num_flows = 10
     start = time.time()
     shape_fit_2d(m, step_size, u_func, num_flows, num_samples)
