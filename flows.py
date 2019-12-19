@@ -15,6 +15,11 @@ e_bound = []
 joint_probs = []
 flow_probs = []
 grad_norms = []
+m = 10000
+start = time.time()
+q_0_mu = np.array([0,0])
+q_0_sigma = 1
+D = q_0_mu.shape[0]
 def callback(x, i, g):
     '''
         Callback function used in Adam solver. Has functionality to plot intermediate steps
@@ -33,14 +38,25 @@ def callback(x, i, g):
         sys.stdout.write("{}\r".format(' '*50))
         sys.stdout.flush()
         print("[{}]  100%  {}".format(20*'=', time.time() - start))
-    #if(i%100 == 0):
-    #    new_samples = np.random.randn(num_samples)[:,np.newaxis]
-        #new_samples = np.random.uniform(-1, 1, num_samples)[:,np.newaxis]
-        #flowed_samples = flow_samples(x, new_samples, np.tanh)
-        #fig, ax = plt.subplots()
-        #ax.hist(flowed_samples, bins=140, density=True)
-        #plt.savefig("./data_fit_1d/{}.png".format(i))
-        #plt.close()
+    #if(i%10 == 0):
+    #    if(i==0):
+    #        leading_zeros = int(np.log(m)/np.log(10))
+    #    elif(i==1000):
+    #        leading_zeros = int(np.log(m)/np.log(10)) - int(np.log(i)/np.log(10)) - 1
+    #    else:
+    #        leading_zeros = int(np.log(m)/np.log(10)) - int(np.log(i)/np.log(10))
+    #    zeros = '0'*leading_zeros
+    #    #new_samples = np.random.randn(num_samples)[:,np.newaxis]
+    #    #new_samples = np.random.uniform(-1, 1, num_samples)[:,np.newaxis]
+    #    new_samples = np.random.multivariate_normal(q_0_mu, q_0_sigma*np.eye(D), num_samples)
+    #    flowed_samples = flow_samples(x, new_samples, np.tanh)
+    #    #fig, ax = plt.subplots()
+    #    #ax.hist(flowed_samples, bins=int(np.sqrt(num_samples)), density=True)
+    #    ax = setup_plot(u1)
+    #    ax.scatter(flowed_samples[:,0], flowed_samples[:,1], alpha=0.4)
+    #    ax.set(xlim=(-4,4), ylim=(-4,4), title="{} Flows, Iteration {}".format(20, i))
+    #    plt.savefig("./data_fit_1d/{}{}.png".format(zeros, i))
+    #    plt.close()
 
 
 ###
@@ -138,7 +154,7 @@ def psi(lambda_flow, z, h):
 
 
 # Calculate energy bound
-def energy_bound(lambda_flows, z, h, u_func, beta=1.):
+def energy_bound(lambda_flows, z, h, u_func, beta=1., bnn=False):
     '''
         Energy bound formula from the paper. We exclude the initial sampling contribution
         because it is independent of flow parameters.
@@ -146,7 +162,12 @@ def energy_bound(lambda_flows, z, h, u_func, beta=1.):
     D = (lambda_flows.shape[1]-1)//2
     #initial_exp = np.mean(np.log(sp.stats.norm.pdf(z, loc=q_0_mu, scale=np.sqrt(q_0_sigma))))
     initial_exp = 0
-    joint_exp = beta*np.mean(np.log(u_func(flow_samples(lambda_flows, z, h).reshape(1, -1, 2))))
+    if(bnn):
+        joint_exp = beta*np.mean(np.log(u_func(flow_samples(lambda_flows, z, h))))
+    else:
+        joint_exp = beta*np.mean(np.log(u_func(flow_samples(lambda_flows, z, h
+                                                            ).reshape(1, -1, 2))))
+    #print("JOINT EXP: {}".format(joint_exp))
 
     # log-det-jacobian contribution from the paper
     flow_exp = 0
@@ -223,7 +244,8 @@ def gradient_descent(m, lambda_flows, grad_energy_bound, samples):
             plt.close()
 
 
-def adam_solve(lambda_flows, grad_energy_bound, samples, u_func, h, m=1000, step_size=0.001):
+def adam_solve(lambda_flows, grad_energy_bound, samples, u_func, h, m=1000, step_size=0.001,
+               bnn=False):
     '''
         Uses adam solver to optimize the energy bound
     '''
@@ -232,7 +254,9 @@ def adam_solve(lambda_flows, grad_energy_bound, samples, u_func, h, m=1000, step
     grad_energy_bound = autograd.grad(energy_bound)  # Autograd gradient of energy
     g_eb = lambda lambda_flows, i: grad_energy_bound(lambda_flows, samples, h, u_func, 
                                                      #beta= (0.1 + i/1000))
-                                                     beta=min(1, 0.01+i/10000)) # Annealing
+                                                     #beta=min(2, i/1000)) # Annealing
+                                                     beta=min(1, 0.01+i/10000),
+                                                     bnn=bnn) # Annealing
     output = adam(g_eb, output, num_iters=m, callback=callback, step_size=step_size)
     print("AFTER LEARNING:\n{}".format(output))
 
@@ -240,11 +264,41 @@ def adam_solve(lambda_flows, grad_energy_bound, samples, u_func, h, m=1000, step
     q_0_mu = np.array([0,0])
     q_0_sigma = 1
     D = q_0_mu.shape[0]
-    samples = np.random.multivariate_normal(q_0_mu, q_0_sigma*np.eye(D), num_samples)
+    #samples = np.random.multivariate_normal(q_0_mu, q_0_sigma*np.eye(D), 20000)
 
     samples_flowed = flow_samples(output, samples, h)
     #np.savetxt("./data_fit_1d/flow_params.txt", output)
-    np.savetxt("./2d_plots/flow_params.txt", output)
+    np.savetxt("./nn_fit/flow_params.txt", output)
+    if(bnn):
+        np.savetxt("./nn_fit/energy_bound.txt", e_bound)
+        fig, ax = plt.subplots()
+        ax.plot(e_bound)
+        ax.set(title="Energy Bound")
+        plt.savefig("./nn_fit/energy_bound.png")
+        plt.close()
+
+        np.savetxt("./nn_fit/joint_probs.txt", joint_probs)
+        fig, ax = plt.subplots()
+        ax.plot(joint_probs)
+        ax.set(title="Joint Probability")
+        plt.savefig("./nn_fit/joint_probs.png")
+        plt.close()
+
+        np.savetxt("./nn_fit/flow_probs.txt", flow_probs)
+        fig, ax = plt.subplots()
+        ax.plot(flow_probs)
+        ax.set(title="Flow Probs")
+        plt.savefig("./nn_fit/flow_probs.png")
+        plt.close()
+
+        np.savetxt("./nn_fit/grad_norms.txt", grad_norms)
+        fig, ax = plt.subplots()
+        ax.plot(grad_norms)
+        ax.set(title="Gradient Norms")
+        plt.savefig("./nn_fit/grad_norms.png")
+        plt.close()
+
+
     return samples_flowed
 
 
@@ -270,14 +324,16 @@ def shape_fit_2d(m, step_size, u_func, num_flows=8, num_samples=1000):
     flowed_samples = adam_solve(lambda_flows, grad_energy_bound, samples,
                                 u_func, h, m, step_size)
 
+    os.system("cd ./plots/ ; convert -delay 10 -loop 0 *.png learning_flows.gif")
     # Plot Transformed samples
     ax = setup_plot(u_func)
     #print(samples_flowed.shape)
     ax.scatter(flowed_samples[:,0], flowed_samples[:,1], alpha=0.2)
+    ax.set(title="{} Flows, {} Iterations, {} Step Size".format(num_flows, m, step_size),
+           xlim=(-4,4), ylim=(-4,4))
     plt.savefig("./2d_plots/adam_fit_test.png")
 
     # Convert plots to gif or mp4
-    #os.system("cd ./plots/ ; convert -delay 10 -loop 0 *.png learning_flows.gif")
     #plot_str = "cd ./plots/ ; ffmpeg -pattern_type glob -i \"*.png\" -c:v "
     #plot_str += "libx264 -pix_fmt yuv420p -movflags +faststart learning_flows.mp4"
     #os.system(plot_str)
@@ -328,8 +384,8 @@ def shape_fit_1d(m, step_size, u_func, num_flows=8, num_samples=1000):
 
 if __name__ == '__main__':
     m = 14000
-    m = 5000
-    u_func = u2   # 2D Shape fit
+    m = 10000
+    u_func = u1   # 2D Shape fit
     #u_func = lambda x: (sp.stats.norm.pdf((x-4)) + sp.stats.norm.pdf((x+4)))/2 # 1D Shape fit
     #u_func = lambda x: sp.stats.gamma.pdf(x, 1)
     #u_func = lambda x: sp.stats.laplace.pdf(x, 4)
@@ -342,11 +398,11 @@ if __name__ == '__main__':
     print("SAMPLING")
 
     num_samples = 20000
-    num_samples = 1000
+    num_samples = 2000
     #x_dat = sample(target, 1, -8, 8, num_samples)
 
-    step_size = .0001
-    num_flows = 10
+    step_size = .0002
+    num_flows = 20
     start = time.time()
     shape_fit_2d(m, step_size, u_func, num_flows, num_samples)
     #shape_fit_1d(m, step_size, u_func, num_flows, num_samples)
