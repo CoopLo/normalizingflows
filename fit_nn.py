@@ -193,8 +193,9 @@ def posterior_predictive(bnn, flowed_means, flowed_vars, x, y):
     ax.scatter(x, y, color='k', label="True Data")
     pred_samp = []
     for i in range(500):
-        sampled_weights = np.array([np.random.normal(-flowed_means[i]/flowed_vars[i]) 
+        sampled_weights = np.array([np.random.normal(-flowed_means[i], flowed_vars[i]) 
                                     for i in range(D)])[np.newaxis,]
+        print(sampled_weights)
         pred = bnn.forward(sampled_weights, xs[np.newaxis,])
         pred_samp.append(pred[0][0])
 
@@ -204,18 +205,6 @@ def posterior_predictive(bnn, flowed_means, flowed_vars, x, y):
     ax.plot(xs, np.mean(pred_samp, axis=0), color='r', label="Prediction Mean")
     ax.legend(loc='best')
     plt.savefig("./nn_fit/fit.png")
-
-    fig, ax = plt.subplots(nrows=4, figsize=(8,20))
-    ax[0].plot(grad_norms, label="Norm of gradient")
-    ax[0].legend(loc='best')
-    ax[1].plot(e_bound, label="Energy Bound")
-    ax[1].legend(loc='best')
-    ax[2].plot(joint_probs, label="Joint Probability")
-    ax[2].legend(loc='best')
-    ax[3].plot(flow_probs, label="Flow Probability")
-    ax[3].legend(loc='best')
-    #plt.savefig("./data_fit_1d/probabilities.png")
-    plt.savefig("./2d_plots/probabilities.png")
     plt.show()
 
 
@@ -253,8 +242,8 @@ if __name__ == '__main__':
     bnn = Feedforward(architecture, random=random)
 
     # Flow parameters
-    num_flows = 30
-    num_samples = 1000
+    num_flows = 15
+    num_samples = 2000
     h = np.tanh
     D = 2*bnn.D + 1
     flow_params = [1.] * D
@@ -271,7 +260,7 @@ if __name__ == '__main__':
 
     # Fit
     output = adam_solve(lambda_flows, grad_energy_bound, samples, joint_prob, h,
-                        m=1000, step_size=0.01)
+                        m=20000, step_size=0.005, bnn=True)
 
     # Gather parameters
     flowed_means = np.mean(output, axis=0)
