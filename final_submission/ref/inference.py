@@ -1,8 +1,8 @@
 from autograd import numpy as np
 from autograd import scipy as sp
 from autograd import grad
-from alpha_hmc import HMC
-from bbvi import BBVI
+from ref.alpha_hmc import HMC
+from ref.bbvi import BBVI
 #from bbalpha import BBALPHA
 from autograd.misc.optimizers import adam, sgd
 

@@ -2,7 +2,7 @@ from autograd import numpy as np
 from autograd import scipy as sp
 from autograd import grad
 
-from inference import Inference
+from ref.inference import Inference
 
 class Bayesian_Regression:
     def __init__(self, params, forward, Sigma_W, sigma_y, random=None, weights=None):
