@@ -21,9 +21,12 @@ class Feedforward:
                        'activation_type': architecture['activation_fn_type'],
                        'activation_params': architecture['activation_fn_params']}
 
-        self.D = (  (architecture['input_dim'] * architecture['width'] + architecture['width'])
-                  + (architecture['output_dim'] * architecture['width'] + architecture['output_dim'])
-                  + (architecture['hidden_layers'] - 1) * (architecture['width']**2 + architecture['width'])
+        self.D = (  (architecture['input_dim'] * architecture['width'] + 
+                     architecture['width'])
+                  + (architecture['output_dim'] * architecture['width'] + 
+                     architecture['output_dim'])
+                  + (architecture['hidden_layers'] - 1) * 
+                    (architecture['width']**2 + architecture['width'])
                  )
 
         if random is not None:
@@ -169,16 +172,52 @@ class Feedforward:
 
 
 def log_joint(w, x, y, nn, mu=0, sig1=5., sig2=0.5, N=16):
-    print(w[0].shape)
-    print(x.shape)
     sig1_mat = sig1**2 * np.eye(N)
-    mu = nn.forward(w[0], x[np.newaxis,])[0][0]
-    prior = np.log(sp.stats.multivariate_normal.pdf(w, np.zeros(N), sig1_mat))
+    mu = nn.forward(w, x[np.newaxis,])[0][0]
+    #prior = np.log(sp.stats.multivariate_normal.pdf(w, np.zeros(N), sig1_mat))
+    prior = sp.stats.multivariate_normal.pdf(w, np.zeros(N), sig1_mat)
     likelihood = 0
-    for i in range(len(y_train)):
-        likelihood += np.log(sp.stats.norm.pdf(y_train[i], mu[i], sig2**2))
+    for i in range(len(y)):
+        #likelihood += np.log(sp.stats.norm.pdf(y[i], mu[i], sig2**2))
+        likelihood += sp.stats.norm.pdf(y[i], mu[i], sig2**2)
+    return prior * likelihood
 
-    return np.exp(-prior - likelihood)
+
+def posterior_predictive(bnn, flowed_means, flowed_vars, x, y):
+    #weight_dists = [np.random.normal(flowed_means[i], flowed_vars[i]) 
+    #                for i in range(len(flowed_means))]
+
+    D = len(flowed_means)
+    xs = np.linspace(min(x)-0.5, max(x)+0.5, 200)
+    fig, ax = plt.subplots()
+    ax.scatter(x, y, color='k', label="True Data")
+    pred_samp = []
+    for i in range(500):
+        sampled_weights = np.array([np.random.normal(-flowed_means[i]/flowed_vars[i]) 
+                                    for i in range(D)])[np.newaxis,]
+        pred = bnn.forward(sampled_weights, xs[np.newaxis,])
+        pred_samp.append(pred[0][0])
+
+    low = numpy.percentile(pred_samp, 2.5, axis=0)
+    high = numpy.percentile(pred_samp, 97.5, axis=0)
+    ax.fill_between(xs, low, high, alpha=0.3, label="95% Predictive Interval")
+    ax.plot(xs, np.mean(pred_samp, axis=0), color='r', label="Prediction Mean")
+    ax.legend(loc='best')
+    plt.savefig("./nn_fit/fit.png")
+
+    fig, ax = plt.subplots(nrows=4, figsize=(8,20))
+    ax[0].plot(grad_norms, label="Norm of gradient")
+    ax[0].legend(loc='best')
+    ax[1].plot(e_bound, label="Energy Bound")
+    ax[1].legend(loc='best')
+    ax[2].plot(joint_probs, label="Joint Probability")
+    ax[2].legend(loc='best')
+    ax[3].plot(flow_probs, label="Flow Probability")
+    ax[3].legend(loc='best')
+    #plt.savefig("./data_fit_1d/probabilities.png")
+    plt.savefig("./2d_plots/probabilities.png")
+    plt.show()
+
 
 
 if __name__ == '__main__':
@@ -213,18 +252,31 @@ if __name__ == '__main__':
     #instantiate a Feedforward neural network object
     bnn = Feedforward(architecture, random=random)
 
-    num_flows = 10
-    num_samples = 100
+    # Flow parameters
+    num_flows = 30
+    num_samples = 1000
     h = np.tanh
-    lambda_flows = np.array([np.array([0., 0., 0., 0., 0., 0., 0., 0., 
-                                       0., 0., 0., 0., 0., 0., 0., 0.])]*num_flows)
-    #samples = np.random.randn(num_samples)[:,np.newaxis]
-    samples = np.random.multivariate_normal([0]*5, np.eye(5), num_samples)
-    print(samples.shape)
+    D = 2*bnn.D + 1
+    flow_params = [1.] * D
+    lambda_flows = np.array([np.array(flow_params)]*num_flows)
+
+    # Generate samples
+    samples = np.random.multivariate_normal([0]*bnn.D, np.eye(bnn.D), num_samples)
+
+    # Energy bound from paper
     grad_energy_bound = autograd.grad(energy_bound)
 
-    print("HERE: {}\n\n\n".format(y))
+    # Joint prob of BNN
     joint_prob = lambda w: log_joint(w, x, y, bnn)
-    output = adam_solve(lambda_flows, grad_energy_bound, samples, joint_prob, h)
+
+    # Fit
+    output = adam_solve(lambda_flows, grad_energy_bound, samples, joint_prob, h,
+                        m=1000, step_size=0.01)
+
+    # Gather parameters
+    flowed_means = np.mean(output, axis=0)
+    flowed_vars = np.var(output, axis=0)
+
+    # Predict and plot
+    posterior_predictive(bnn, flowed_means, flowed_vars, x, y)
     
-# Joint = Likelihood of NN * normal prior
