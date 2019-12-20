@@ -20,7 +20,7 @@ start = time.time()
 q_0_mu = np.array([0,0])
 q_0_sigma = 1
 D = q_0_mu.shape[0]
-def callback(x, i, g):
+def callback(x, i, g, num_samples=100):
     '''
         Callback function used in Adam solver. Has functionality to plot intermediate steps
         and do progress bar
@@ -43,20 +43,20 @@ def callback(x, i, g):
             leading_zeros = int(np.log(m)/np.log(10))
         elif(i==1000):
             leading_zeros = int(np.log(m)/np.log(10)) - int(np.log(i)/np.log(10)) - 1
-        else:
-            leading_zeros = int(np.log(m)/np.log(10)) - int(np.log(i)/np.log(10))
-        zeros = '0'*leading_zeros
-        new_samples = np.random.randn(num_samples)[:,np.newaxis]
-        #new_samples = np.random.uniform(-1, 1, num_samples)[:,np.newaxis]
-        #new_samples = np.random.multivariate_normal(q_0_mu, q_0_sigma*np.eye(D), num_samples)
-        flowed_samples = flow_samples(x, new_samples, np.tanh)
-        fig, ax = plt.subplots()
-        ax.hist(flowed_samples, bins=int(np.sqrt(num_samples)), density=True)
-        #ax = setup_plot(u1)
-        #ax.scatter(flowed_samples[:,0], flowed_samples[:,1], alpha=0.4)
-        #ax.set(xlim=(-4,4), ylim=(-4,4), title="{} Flows, Iteration {}".format(20, i))
-        #plt.savefig("./data_fit_1d/{}{}.png".format(zeros, i))
-        plt.close()
+        # else:
+        #     leading_zeros = int(np.log(m)/np.log(10)) - int(np.log(i)/np.log(10))
+        # zeros = '0'*leading_zeros
+        # new_samples = np.random.randn(num_samples)[:,np.newaxis]
+        # #new_samples = np.random.uniform(-1, 1, num_samples)[:,np.newaxis]
+        # #new_samples = np.random.multivariate_normal(q_0_mu, q_0_sigma*np.eye(D), num_samples)
+        # flowed_samples = flow_samples(x, new_samples, np.tanh)
+        # fig, ax = plt.subplots()
+        # ax.hist(flowed_samples, bins=int(np.sqrt(num_samples)), density=True)
+        # #ax = setup_plot(u1)
+        # #ax.scatter(flowed_samples[:,0], flowed_samples[:,1], alpha=0.4)
+        # #ax.set(xlim=(-4,4), ylim=(-4,4), title="{} Flows, Iteration {}".format(20, i))
+        # #plt.savefig("./data_fit_1d/{}{}.png".format(zeros, i))
+        # plt.close()
 
 
 ###
@@ -420,3 +420,4 @@ if __name__ == '__main__':
     #plt.savefig("./data_fit_1d/probabilities.png")
     plt.savefig("./2d_plots/probabilities.png")
     plt.show()
+
